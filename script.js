@@ -1,15 +1,7 @@
-let message = "";
+let detectedLinks = [];
+let lastMessage = "";
 
-/*
-  안심링크 엄격 판정 방식
-
-  점수화 방식 X
-  위험 조건에 하나라도 걸리면 "위험"
-  진짜 신뢰할 수 있는 공식 도메인일 때만 "안전"
-
-  이유:
-  https가 붙어 있어도 피싱, 유사 도메인, 아이피로거일 수 있기 때문.
-*/
+const STORAGE_KEY = "ansimlink_history";
 
 const trustedDomains = [
     "naver.com",
@@ -69,7 +61,7 @@ const ipLoggerDomains = [
     "iplogger.ru"
 ];
 
-const urgentWords = [
+const dangerousWords = [
     "login",
     "verify",
     "account",
@@ -94,33 +86,209 @@ const urgentWords = [
     "결제"
 ];
 
-function checkLink() {
-    const inputUrl = document.getElementById("url").value.trim();
+function allowPermission() {
+    showScreen("mainScreen");
 
-    if (inputUrl === "") {
-        showResult(
-            "위험",
-            ["URL이 입력되지 않았습니다."],
-            "검사할 URL을 입력해주세요."
-        );
+    speak(
+        "권한이 허용되었습니다. 현재 화면에 표시된 링크를 감지합니다."
+    );
+
+    detectLinks();
+    protectScreenLinks();
+}
+
+function denyPermission() {
+    speak(
+        "권한이 허용되지 않았습니다. 화면 속 링크를 탐지할 수 없습니다."
+    );
+}
+
+function showScreen(screenId) {
+    const screens = document.querySelectorAll(".screen");
+
+    screens.forEach(function (screen) {
+        screen.classList.remove("active");
+    });
+
+    document.getElementById(screenId).classList.add("active");
+}
+
+function detectLinks() {
+    const screenArea = document.getElementById("screenArea");
+    const linkElements = Array.from(screenArea.querySelectorAll("a[href]"));
+    const textUrls = extractUrlsFromText(screenArea.innerText);
+
+    const linksFromTags = linkElements.map(function (link) {
+        return new URL(link.getAttribute("href"), location.href).href;
+    });
+
+    detectedLinks = removeDuplicates(linksFromTags.concat(textUrls));
+
+    document.getElementById("statusBox").innerText =
+        "발견된 링크 수: " + detectedLinks.length + "개";
+
+    renderDetectedLinks();
+
+    speak(
+        "현재 화면에서 링크 " + detectedLinks.length + "개를 감지했습니다."
+    );
+}
+
+function extractUrlsFromText(text) {
+    const pattern = /https?:\/\/[^\s]+/g;
+    const matches = text.match(pattern) || [];
+
+    return matches.map(function (url) {
+        return url.replace(/[),.]+$/g, "");
+    });
+}
+
+function removeDuplicates(list) {
+    return Array.from(new Set(list));
+}
+
+function renderDetectedLinks() {
+    const area = document.getElementById("detectedList");
+    area.innerHTML = "";
+
+    if (detectedLinks.length === 0) {
+        area.innerHTML = `
+            <div class="detected-item">
+                탐지된 링크가 없습니다.
+            </div>
+        `;
         return;
     }
 
-    const result = analyzeUrlStrict(inputUrl);
-    showResult(result.level, result.reasons, result.guide);
+    detectedLinks.forEach(function (url) {
+        const result = analyzeUrl(url);
+        const className = result.level === "위험" ? "danger" : "safe";
+
+        area.innerHTML += `
+            <div class="detected-item ${className}">
+                <strong>${result.level}</strong><br>
+                ${escapeHtml(url)}
+            </div>
+        `;
+    });
 }
 
-function analyzeUrlStrict(inputUrl) {
-    let urlText = inputUrl;
+function protectScreenLinks() {
+    const screenArea = document.getElementById("screenArea");
+    const links = Array.from(screenArea.querySelectorAll("a[href]"));
 
-    if (!urlText.startsWith("http://") && !urlText.startsWith("https://")) {
-        urlText = "https://" + urlText;
+    links.forEach(function (link) {
+        if (link.dataset.ansimProtected === "true") {
+            return;
+        }
+
+        link.dataset.ansimProtected = "true";
+
+        const url = new URL(link.getAttribute("href"), location.href).href;
+        const result = analyzeUrl(url);
+
+        if (result.level === "위험") {
+            link.classList.add("ansim-danger-link");
+            link.setAttribute(
+                "aria-label",
+                "위험한 링크일 수 있습니다. 누르지 마세요. " + result.reasons.join(" ")
+            );
+        } else {
+            link.classList.add("ansim-safe-link");
+            link.setAttribute(
+                "aria-label",
+                "안전한 링크로 판단됩니다. " + url
+            );
+        }
+
+        link.addEventListener("click", function (event) {
+            event.preventDefault();
+
+            const clickedUrl = new URL(link.getAttribute("href"), location.href).href;
+            const clickedResult = analyzeUrl(clickedUrl);
+
+            if (clickedResult.level === "위험") {
+                const message =
+                    "위험한 링크입니다. 누르지 마세요. " +
+                    "이유는 " + clickedResult.reasons.join(" ") +
+                    "입니다. 공식 사이트나 공식 앱으로 직접 접속하세요.";
+
+                saveHistory(clickedUrl, clickedResult);
+                showWarning(clickedUrl, clickedResult.reasons);
+                speak(message);
+            } else {
+                const message =
+                    "안전한 링크로 판단됩니다. 그래도 개인정보 입력 전에는 공식 사이트인지 확인하세요.";
+
+                saveHistory(clickedUrl, clickedResult);
+                speak(message);
+                alert(message);
+            }
+        });
+    });
+}
+
+function analyzeAllLinks() {
+    if (detectedLinks.length === 0) {
+        speak("분석할 링크가 없습니다.");
+        return;
     }
 
+    const resultArea = document.getElementById("resultArea");
+    resultArea.innerHTML = "";
+
+    let speechText = "";
+
+    detectedLinks.forEach(function (url) {
+        const result = analyzeUrl(url);
+        saveHistory(url, result);
+
+        const className = result.level === "위험" ? "danger" : "safe";
+        const icon = result.level === "위험" ? "🚨" : "✅";
+
+        speechText +=
+            "검사 결과는 " + result.level + "입니다. " +
+            "주소는 " + url + "입니다. " +
+            "이유는 " + result.reasons.join(" ") + "입니다. ";
+
+        resultArea.innerHTML += `
+            <article class="result-card ${className}">
+                <h2>${icon} ${result.level}</h2>
+
+                <p class="url-text">
+                    <strong>탐지된 URL</strong><br>
+                    ${escapeHtml(url)}
+                </p>
+
+                <p class="reason-title">판단 이유</p>
+                <ul>
+                    ${result.reasons.map(function (reason) {
+                        return "<li>" + escapeHtml(reason) + "</li>";
+                    }).join("")}
+                </ul>
+
+                <p class="reason-title">대처 방법</p>
+                <p>
+                    ${
+                        result.level === "위험"
+                        ? "이 링크를 누르지 말고 공식 사이트나 공식 앱으로 직접 접속하세요."
+                        : "현재 기준으로 위험 요소는 발견되지 않았지만 개인정보 입력 전에는 주소를 다시 확인하세요."
+                    }
+                </p>
+            </article>
+        `;
+    });
+
+    lastMessage = speechText;
+    showScreen("resultScreen");
+    speak(speechText);
+}
+
+function analyzeUrl(inputUrl) {
     let url;
 
     try {
-        url = new URL(urlText);
+        url = new URL(inputUrl);
     } catch (error) {
         return danger([
             "URL 형식이 올바르지 않습니다."
@@ -134,86 +302,70 @@ function analyzeUrlStrict(inputUrl) {
 
     let reasons = [];
 
-    // 1. http 주소 차단
     if (url.protocol === "http:") {
-        reasons.push("https가 아닌 http 주소입니다. 보안 연결이 약할 수 있습니다.");
+        reasons.push("https가 아닌 http 주소입니다.");
     }
 
-    // 2. 숫자 IP 주소 차단
-    // 예: http://123.45.67.89
     if (isIpAddress(host)) {
-        reasons.push("도메인 이름이 아니라 숫자로 된 IP 주소를 사용하고 있습니다.");
+        reasons.push("도메인 이름이 아니라 숫자 IP 주소를 사용하고 있습니다.");
     }
 
-    // 3. 아이피로거 의심 도메인 차단
     if (isDomainInList(host, ipLoggerDomains)) {
         reasons.push("아이피로거 또는 접속자 추적에 자주 사용되는 도메인입니다.");
     }
 
-    // 4. 짧은 링크 차단
     if (isDomainInList(host, shortLinkDomains)) {
-        reasons.push("짧은 주소 서비스가 사용되어 실제 이동할 사이트를 확인하기 어렵습니다.");
+        reasons.push("짧은 주소 서비스라서 실제 이동할 사이트를 확인하기 어렵습니다.");
     }
 
-    // 5. @ 포함 URL 차단
-    // 예: https://google.com@evil.com
     if (url.username !== "" || url.password !== "" || inputUrl.includes("@")) {
         reasons.push("URL에 @ 또는 사용자 정보 형식이 포함되어 실제 접속 도메인을 속일 수 있습니다.");
     }
 
-    // 6. 비슷한 문자로 위장한 도메인 차단
     if (host.includes("xn--")) {
-        reasons.push("비슷한 글자로 위장한 국제화 도메인일 가능성이 있습니다.");
+        reasons.push("비슷한 문자로 위장한 도메인일 가능성이 있습니다.");
     }
 
     const trusted = isDomainInList(host, trustedDomains);
 
-    // 7. 유명 사이트 유사 도메인 차단
-    // 예: goudle.com, gooogle.com
-    const typoBrand = findSimilarBrand(domainParts.mainName);
+    const similarBrand = findSimilarBrand(domainParts.mainName);
 
-    if (!trusted && typoBrand !== null) {
-        reasons.push(`${typoBrand} 공식 사이트와 비슷해 보이는 유사 도메인입니다.`);
+    if (!trusted && similarBrand !== null) {
+        reasons.push(similarBrand + " 공식 사이트와 비슷해 보이는 유사 도메인입니다.");
     }
 
-    // 8. 공식 도메인이 아닌데 유명 사이트 이름이 포함된 경우
-    // 예: naver-login-event.com
-    const containsBrand = brandNames.find(brand => host.includes(brand));
+    const includedBrand = brandNames.find(function (brand) {
+        return host.includes(brand);
+    });
 
-    if (!trusted && containsBrand) {
-        reasons.push(`공식 도메인이 아닌데 ${containsBrand} 이름이 포함되어 있습니다.`);
+    if (!trusted && includedBrand) {
+        reasons.push("공식 도메인이 아닌데 " + includedBrand + " 이름이 포함되어 있습니다.");
     }
 
-    // 9. 공식 도메인이 아닌데 로그인/인증/이벤트 단어 포함
-    const foundWords = urgentWords.filter(word => fullUrl.includes(word));
+    const foundDangerousWords = dangerousWords.filter(function (word) {
+        return fullUrl.includes(word);
+    });
 
-    if (!trusted && foundWords.length > 0) {
-        reasons.push("신뢰된 공식 도메인이 아닌데 로그인, 인증, 이벤트, 결제 같은 민감한 단어가 포함되어 있습니다.");
+    if (!trusted && foundDangerousWords.length > 0) {
+        reasons.push("공식 도메인이 아닌데 로그인, 인증, 이벤트, 결제 같은 민감한 단어가 포함되어 있습니다.");
     }
 
-    // 10. 무작위 문자열처럼 보이는 도메인 차단
-    // 예: asdad.com, x7qz91.com
     if (!trusted && looksRandomDomain(domainParts.mainName)) {
         reasons.push("도메인 이름이 무작위 문자열처럼 보여 신뢰하기 어렵습니다.");
     }
 
-    // 11. URL이 너무 긴 경우
     if (fullUrl.length >= 90) {
         reasons.push("URL이 지나치게 길어 실제 목적지를 파악하기 어렵습니다.");
     }
 
-    // 12. 숫자가 너무 많은 경우
     if (countDigits(fullUrl) >= 12) {
         reasons.push("URL에 숫자가 과도하게 많이 포함되어 있습니다.");
     }
 
-    // 13. 특수문자가 너무 많은 경우
     if (countSpecialChars(pathAndQuery) >= 8) {
         reasons.push("URL 경로에 특수문자가 많이 포함되어 있습니다.");
     }
 
-    // 14. 엄격 모드
-    // 신뢰 도메인 목록에 없는 처음 보는 도메인은 안전하다고 단정하지 않음
     if (!trusted && reasons.length === 0) {
         reasons.push("공식 또는 신뢰 도메인 목록에 없는 처음 보는 도메인입니다.");
     }
@@ -226,22 +378,136 @@ function analyzeUrlStrict(inputUrl) {
         level: "안전",
         reasons: [
             "신뢰 도메인 목록에 있는 주소입니다.",
-            "http, IP 주소, 짧은 링크, 유사 도메인, 아이피로거 패턴이 발견되지 않았습니다."
-        ],
-        guide: "현재 기준으로 안전한 링크로 판단됩니다. 그래도 개인정보 입력 전에는 주소를 한 번 더 확인하세요."
+            "위험 패턴이 발견되지 않았습니다."
+        ]
     };
 }
 
 function danger(reasons) {
     return {
         level: "위험",
-        reasons: reasons,
-        guide: "위험한 링크일 수 있습니다. 바로 누르지 말고 공식 사이트나 공식 앱으로 직접 접속하세요."
+        reasons: reasons
     };
 }
 
+function showWarning(url, reasons) {
+    document.getElementById("warningUrl").innerText = url;
+
+    document.getElementById("warningReason").innerHTML = `
+        <p><strong>판단 이유</strong></p>
+        <ul>
+            ${reasons.map(function (reason) {
+                return "<li>" + escapeHtml(reason) + "</li>";
+            }).join("")}
+        </ul>
+    `;
+
+    document.getElementById("warningModal").classList.remove("hidden");
+}
+
+function closeWarning() {
+    document.getElementById("warningModal").classList.add("hidden");
+}
+
+function saveHistory(url, result) {
+    const history = loadHistory();
+
+    const data = {
+        url: url,
+        level: result.level,
+        reason: result.reasons.join(" / "),
+        date: new Date().toLocaleString("ko-KR")
+    };
+
+    history.unshift(data);
+
+    localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(history.slice(0, 30))
+    );
+}
+
+function loadHistory() {
+    const data = localStorage.getItem(STORAGE_KEY);
+
+    if (!data) {
+        return [];
+    }
+
+    try {
+        return JSON.parse(data);
+    } catch (error) {
+        return [];
+    }
+}
+
+function showHistory() {
+    const history = loadHistory();
+    const area = document.getElementById("historyArea");
+
+    area.innerHTML = "";
+
+    if (history.length === 0) {
+        area.innerHTML = `
+            <div class="history-item">
+                저장된 검사 기록이 없습니다.
+            </div>
+        `;
+    } else {
+        history.forEach(function (item) {
+            area.innerHTML += `
+                <div class="history-item">
+                    <strong>${escapeHtml(item.level)}</strong><br>
+                    ${escapeHtml(item.url)}<br>
+                    <small>${escapeHtml(item.date)}</small>
+                    <p>${escapeHtml(item.reason)}</p>
+                </div>
+            `;
+        });
+    }
+
+    showScreen("historyScreen");
+}
+
+function clearHistory() {
+    localStorage.removeItem(STORAGE_KEY);
+    showHistory();
+    speak("검사 기록을 삭제했습니다.");
+}
+
+function goMain() {
+    showScreen("mainScreen");
+}
+
+function speak(text) {
+    lastMessage = text;
+
+    if (!("speechSynthesis" in window)) {
+        return;
+    }
+
+    speechSynthesis.cancel();
+
+    const tts = new SpeechSynthesisUtterance(text);
+    tts.lang = "ko-KR";
+    tts.rate = 0.9;
+
+    speechSynthesis.speak(tts);
+}
+
+function speakLastMessage() {
+    if (lastMessage === "") {
+        speak("아직 안내할 내용이 없습니다.");
+        return;
+    }
+
+    speak(lastMessage);
+}
+
 function isDomainInList(host, list) {
-    return list.some(domain => host === domain || host.endsWith("." + domain));
+    return list.some(function (domain) {
+        return host === domain || host.endsWith("." + domain);
+    });
 }
 
 function isIpAddress(host) {
@@ -267,20 +533,21 @@ function getDomainParts(host) {
     }
 
     return {
-        mainName,
-        tld
+        mainName: mainName,
+        tld: tld
     };
 }
 
 function findSimilarBrand(domainName) {
-    for (const brand of brandNames) {
+    for (let i = 0; i < brandNames.length; i++) {
+        const brand = brandNames[i];
+
         if (domainName === brand) {
             continue;
         }
 
         const distance = levenshtein(domainName, brand);
 
-        // google -> goudle, gooogle 같은 한두 글자 차이 잡기
         if (brand.length >= 5 && distance <= 2) {
             return brand;
         }
@@ -290,9 +557,9 @@ function findSimilarBrand(domainName) {
 }
 
 function levenshtein(a, b) {
-    const dp = Array.from({ length: a.length + 1 }, () =>
-        Array(b.length + 1).fill(0)
-    );
+    const dp = Array.from({ length: a.length + 1 }, function () {
+        return Array(b.length + 1).fill(0);
+    });
 
     for (let i = 0; i <= a.length; i++) {
         dp[i][0] = i;
@@ -346,7 +613,9 @@ function looksRandomDomain(name) {
         /temp/i
     ];
 
-    return randomLikePatterns.some(pattern => pattern.test(name));
+    return randomLikePatterns.some(function (pattern) {
+        return pattern.test(name);
+    });
 }
 
 function countDigits(text) {
@@ -357,42 +626,6 @@ function countDigits(text) {
 function countSpecialChars(text) {
     const result = text.match(/[!@#$%^&*()_=+{}\[\]|;:'",<>?`~]/g);
     return result ? result.length : 0;
-}
-
-function showResult(level, reasons, guide) {
-    const resultBox = document.getElementById("result");
-    const className = level === "위험" ? "danger" : "safe";
-
-    message = `검사 결과는 ${level}입니다. ${guide} 판단 이유는 ${reasons.join(" ")}입니다.`;
-
-    resultBox.className = className;
-    resultBox.innerHTML = `
-        <h2>${level === "위험" ? "🚨 위험" : "✅ 안전"}</h2>
-        <p>${escapeHtml(guide)}</p>
-        <p class="reason-title">판단 이유</p>
-        <ul>
-            ${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join("")}
-        </ul>
-    `;
-}
-
-function speak() {
-    if (message === "") {
-        message = "먼저 링크를 분석해주세요.";
-    }
-
-    if (!("speechSynthesis" in window)) {
-        alert("이 브라우저에서는 음성 안내 기능을 사용할 수 없습니다.");
-        return;
-    }
-
-    speechSynthesis.cancel();
-
-    const tts = new SpeechSynthesisUtterance(message);
-    tts.lang = "ko-KR";
-    tts.rate = 0.9;
-
-    speechSynthesis.speak(tts);
 }
 
 function escapeHtml(text) {
