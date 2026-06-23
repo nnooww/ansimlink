@@ -7,21 +7,139 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <h1>🔒 안심링크</h1>
+  <main class="app">
+    <section id="permissionScreen" class="screen active">
+      <h1>🔒 안심링크</h1>
 
-    <input type="text" id="url"
-      placeholder="URL을 입력하세요">
+      <p class="main-text">
+        현재 화면에 표시된 링크를 확인하기 위해 접근 권한이 필요합니다.
+      </p>
 
-    <button onclick="checkLink()">
-      링크 분석하기
-    </button>
+      <div class="info-box">
+        <p><strong>수집 내용</strong><br>화면 속 URL 정보</p>
+        <p><strong>사용 목적</strong><br>위험 링크 분석 및 음성 경고</p>
+        <p><strong>저장 내용</strong><br>탐지된 URL과 안전/위험 결과만 저장합니다.</p>
+      </div>
 
-    <div id="result"></div>
+      <button type="button" onclick="allowPermission()">
+        권한 허용하기
+      </button>
 
-    <button onclick="speak()">
-      🔊 음성으로 듣기
-    </button>
+      <button type="button" class="sub-button" onclick="denyPermission()">
+        취소
+      </button>
+    </section>
+
+    <section id="mainScreen" class="screen">
+      <header class="top-bar">
+        <h1>안심링크</h1>
+        <button type="button" class="small-button" onclick="showHistory()">
+          기록
+        </button>
+      </header>
+
+      <p class="main-text">
+        현재 화면에서 링크를 감지하고 있습니다.
+      </p>
+
+      <div class="status-box" id="statusBox">
+        발견된 링크 수: 0개
+      </div>
+
+      <section class="phone-screen" id="screenArea" aria-label="링크 탐지 대상 화면">
+        <h2>현재 화면 예시</h2>
+
+        <div class="message-card">
+          <p>
+            보안 인증이 필요합니다. 아래 링크에서 계정을 확인하세요.
+          </p>
+          <a href="https://goudle.com/login/verify?account=123456789012">
+            Google 보안 인증 바로가기
+          </a>
+        </div>
+
+        <div class="message-card">
+          <p>
+            정부24 공식 사이트입니다.
+          </p>
+          <a href="https://www.gov.kr">
+            정부24 공식 홈페이지
+          </a>
+        </div>
+
+        <div class="message-card">
+          <p>
+            무료 이벤트 당첨 안내:
+            https://asdad.com/event/free-gift
+          </p>
+        </div>
+
+        <div class="message-card">
+          <p>
+            사진 확인 링크입니다.
+          </p>
+          <a href="https://grabify.link/test">
+            사진 보기
+          </a>
+        </div>
+      </section>
+
+      <button type="button" onclick="detectLinks()">
+        화면 링크 탐지하기
+      </button>
+
+      <section id="detectedList" class="detected-list" aria-live="polite"></section>
+
+      <button type="button" onclick="analyzeAllLinks()">
+        링크 분석하기
+      </button>
+
+      <button type="button" class="sub-button" onclick="speakLastMessage()">
+        🔊 음성 안내 다시 듣기
+      </button>
+    </section>
+
+    <section id="resultScreen" class="screen">
+      <h1>검사 결과</h1>
+
+      <div id="resultArea" aria-live="assertive"></div>
+
+      <button type="button" onclick="goMain()">
+        화면으로 돌아가기
+      </button>
+
+      <button type="button" class="sub-button" onclick="speakLastMessage()">
+        🔊 결과 다시 듣기
+      </button>
+    </section>
+
+    <section id="historyScreen" class="screen">
+      <h1>검사 기록</h1>
+
+      <div id="historyArea"></div>
+
+      <button type="button" onclick="clearHistory()">
+        기록 삭제
+      </button>
+
+      <button type="button" class="sub-button" onclick="goMain()">
+        돌아가기
+      </button>
+    </section>
+  </main>
+
+  <div id="warningModal" class="modal hidden" role="alertdialog" aria-modal="true">
+    <div class="modal-content">
+      <h2>🚨 위험한 링크입니다</h2>
+      <p id="warningUrl"></p>
+      <div id="warningReason"></div>
+      <p class="guide-text">
+        이 링크를 누르지 말고, 공식 사이트나 공식 앱으로 직접 접속하세요.
+      </p>
+      <button type="button" onclick="closeWarning()">
+        확인
+      </button>
+    </div>
   </div>
 
   <script src="script.js"></script>
