@@ -1,5 +1,5 @@
-let detectedLinks = [];
 let lastMessage = "";
+let detectedLinks = [];
 
 const STORAGE_KEY = "ansimlink_history";
 
@@ -14,6 +14,8 @@ const trustedDomains = [
     "coupang.com",
     "gmarket.co.kr",
     "11st.co.kr",
+    "github.com",
+    "github.io",
     "kb.com",
     "kbstar.com",
     "shinhan.com",
@@ -30,6 +32,7 @@ const brandNames = [
     "youtube",
     "coupang",
     "gmarket",
+    "github",
     "kbstar",
     "shinhan",
     "woori",
@@ -90,16 +93,13 @@ function allowPermission() {
     showScreen("mainScreen");
 
     speak(
-        "권한이 허용되었습니다. 현재 화면에 표시된 링크를 감지합니다."
+        "권한이 허용되었습니다. 검사할 문자나 링크를 붙여넣고 링크 탐지 및 분석하기 버튼을 눌러주세요."
     );
-
-    detectLinks();
-    protectScreenLinks();
 }
 
 function denyPermission() {
     speak(
-        "권한이 허용되지 않았습니다. 화면 속 링크를 탐지할 수 없습니다."
+        "권한이 허용되지 않았습니다. 링크 분석 기능을 사용할 수 없습니다."
     );
 }
 
@@ -113,131 +113,66 @@ function showScreen(screenId) {
     document.getElementById(screenId).classList.add("active");
 }
 
-function detectLinks() {
-    const screenArea = document.getElementById("screenArea");
-    const linkElements = Array.from(screenArea.querySelectorAll("a[href]"));
-    const textUrls = extractUrlsFromText(screenArea.innerText);
+async function pasteFromClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById("inputText").value = text;
 
-    const linksFromTags = linkElements.map(function (link) {
-        return new URL(link.getAttribute("href"), location.href).href;
-    });
-
-    detectedLinks = removeDuplicates(linksFromTags.concat(textUrls));
-
-    document.getElementById("statusBox").innerText =
-        "발견된 링크 수: " + detectedLinks.length + "개";
-
-    renderDetectedLinks();
-
-    speak(
-        "현재 화면에서 링크 " + detectedLinks.length + "개를 감지했습니다."
-    );
+        speak("클립보드 내용을 붙여넣었습니다. 링크 탐지 및 분석하기 버튼을 눌러주세요.");
+    } catch (error) {
+        speak("클립보드 권한을 사용할 수 없습니다. 직접 붙여넣어 주세요.");
+        alert("클립보드 권한을 사용할 수 없습니다. 직접 붙여넣어 주세요.");
+    }
 }
 
-function extractUrlsFromText(text) {
-    const pattern = /https?:\/\/[^\s]+/g;
-    const matches = text.match(pattern) || [];
+function insertSample() {
+    const sampleText =
+        "보안 인증이 필요합니다. https://goudle.com/login/verify?account=123456789012 로 접속하세요.\n\n" +
+        "정부24 공식 사이트는 https://www.gov.kr 입니다.\n\n" +
+        "무료 이벤트 당첨 확인: https://asdad.com/event/free-gift\n\n" +
+        "사진 확인 링크: https://grabify.link/test\n\n" +
+        "짧은 주소: https://bit.ly/abc123";
 
-    return matches.map(function (url) {
-        return url.replace(/[),.]+$/g, "");
-    });
+    document.getElementById("inputText").value = sampleText;
+
+    speak("테스트 예시를 입력했습니다.");
 }
 
-function removeDuplicates(list) {
-    return Array.from(new Set(list));
-}
+function detectAndAnalyzeLinks() {
+    const text = document.getElementById("inputText").value.trim();
+    const resultArea = document.getElementById("resultArea");
 
-function renderDetectedLinks() {
-    const area = document.getElementById("detectedList");
-    area.innerHTML = "";
+    resultArea.innerHTML = "";
+
+    if (text === "") {
+        detectedLinks = [];
+        updateStatus();
+
+        resultArea.innerHTML = `
+            <div class="empty-box">
+                검사할 내용을 입력해주세요.
+            </div>
+        `;
+
+        speak("검사할 내용을 입력해주세요.");
+        return;
+    }
+
+    detectedLinks = extractLinks(text);
+    updateStatus();
 
     if (detectedLinks.length === 0) {
-        area.innerHTML = `
-            <div class="detected-item">
+        resultArea.innerHTML = `
+            <div class="empty-box">
                 탐지된 링크가 없습니다.
             </div>
         `;
+
+        speak("탐지된 링크가 없습니다.");
         return;
     }
 
-    detectedLinks.forEach(function (url) {
-        const result = analyzeUrl(url);
-        const className = result.level === "위험" ? "danger" : "safe";
-
-        area.innerHTML += `
-            <div class="detected-item ${className}">
-                <strong>${result.level}</strong><br>
-                ${escapeHtml(url)}
-            </div>
-        `;
-    });
-}
-
-function protectScreenLinks() {
-    const screenArea = document.getElementById("screenArea");
-    const links = Array.from(screenArea.querySelectorAll("a[href]"));
-
-    links.forEach(function (link) {
-        if (link.dataset.ansimProtected === "true") {
-            return;
-        }
-
-        link.dataset.ansimProtected = "true";
-
-        const url = new URL(link.getAttribute("href"), location.href).href;
-        const result = analyzeUrl(url);
-
-        if (result.level === "위험") {
-            link.classList.add("ansim-danger-link");
-            link.setAttribute(
-                "aria-label",
-                "위험한 링크일 수 있습니다. 누르지 마세요. " + result.reasons.join(" ")
-            );
-        } else {
-            link.classList.add("ansim-safe-link");
-            link.setAttribute(
-                "aria-label",
-                "안전한 링크로 판단됩니다. " + url
-            );
-        }
-
-        link.addEventListener("click", function (event) {
-            event.preventDefault();
-
-            const clickedUrl = new URL(link.getAttribute("href"), location.href).href;
-            const clickedResult = analyzeUrl(clickedUrl);
-
-            if (clickedResult.level === "위험") {
-                const message =
-                    "위험한 링크입니다. 누르지 마세요. " +
-                    "이유는 " + clickedResult.reasons.join(" ") +
-                    "입니다. 공식 사이트나 공식 앱으로 직접 접속하세요.";
-
-                saveHistory(clickedUrl, clickedResult);
-                showWarning(clickedUrl, clickedResult.reasons);
-                speak(message);
-            } else {
-                const message =
-                    "안전한 링크로 판단됩니다. 그래도 개인정보 입력 전에는 공식 사이트인지 확인하세요.";
-
-                saveHistory(clickedUrl, clickedResult);
-                speak(message);
-                alert(message);
-            }
-        });
-    });
-}
-
-function analyzeAllLinks() {
-    if (detectedLinks.length === 0) {
-        speak("분석할 링크가 없습니다.");
-        return;
-    }
-
-    const resultArea = document.getElementById("resultArea");
-    resultArea.innerHTML = "";
-
-    let speechText = "";
+    let speechText = "링크 " + detectedLinks.length + "개를 감지했습니다. ";
 
     detectedLinks.forEach(function (url) {
         const result = analyzeUrl(url);
@@ -245,10 +180,13 @@ function analyzeAllLinks() {
 
         const className = result.level === "위험" ? "danger" : "safe";
         const icon = result.level === "위험" ? "🚨" : "✅";
+        const guide =
+            result.level === "위험"
+                ? "이 링크를 누르지 말고 공식 사이트나 공식 앱으로 직접 접속하세요."
+                : "현재 기준으로 위험 요소는 발견되지 않았지만 개인정보 입력 전에는 주소를 다시 확인하세요.";
 
         speechText +=
             "검사 결과는 " + result.level + "입니다. " +
-            "주소는 " + url + "입니다. " +
             "이유는 " + result.reasons.join(" ") + "입니다. ";
 
         resultArea.innerHTML += `
@@ -268,20 +206,38 @@ function analyzeAllLinks() {
                 </ul>
 
                 <p class="reason-title">대처 방법</p>
-                <p>
-                    ${
-                        result.level === "위험"
-                        ? "이 링크를 누르지 말고 공식 사이트나 공식 앱으로 직접 접속하세요."
-                        : "현재 기준으로 위험 요소는 발견되지 않았지만 개인정보 입력 전에는 주소를 다시 확인하세요."
-                    }
-                </p>
+                <p>${guide}</p>
             </article>
         `;
     });
 
-    lastMessage = speechText;
-    showScreen("resultScreen");
     speak(speechText);
+}
+
+function updateStatus() {
+    document.getElementById("statusBox").innerText =
+        "발견된 링크 수: " + detectedLinks.length + "개";
+}
+
+function extractLinks(text) {
+    const urlPattern = /((https?:\/\/)?(www\.)?[a-zA-Z0-9가-힣.-]+\.[a-zA-Z]{2,}(\/[^\s]*)?)/g;
+    const matches = text.match(urlPattern) || [];
+
+    const cleaned = matches.map(function (url) {
+        return url
+            .trim()
+            .replace(/[),.]+$/g, "");
+    });
+
+    const normalized = cleaned.map(function (url) {
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+
+        return "https://" + url;
+    });
+
+    return Array.from(new Set(normalized));
 }
 
 function analyzeUrl(inputUrl) {
@@ -303,7 +259,7 @@ function analyzeUrl(inputUrl) {
     let reasons = [];
 
     if (url.protocol === "http:") {
-        reasons.push("https가 아닌 http 주소입니다.");
+        reasons.push("https가 아닌 http 주소입니다. 보안 연결이 약할 수 있습니다.");
     }
 
     if (isIpAddress(host)) {
@@ -323,7 +279,7 @@ function analyzeUrl(inputUrl) {
     }
 
     if (host.includes("xn--")) {
-        reasons.push("비슷한 문자로 위장한 도메인일 가능성이 있습니다.");
+        reasons.push("비슷한 문자로 위장한 국제화 도메인일 가능성이 있습니다.");
     }
 
     const trusted = isDomainInList(host, trustedDomains);
@@ -388,25 +344,6 @@ function danger(reasons) {
         level: "위험",
         reasons: reasons
     };
-}
-
-function showWarning(url, reasons) {
-    document.getElementById("warningUrl").innerText = url;
-
-    document.getElementById("warningReason").innerHTML = `
-        <p><strong>판단 이유</strong></p>
-        <ul>
-            ${reasons.map(function (reason) {
-                return "<li>" + escapeHtml(reason) + "</li>";
-            }).join("")}
-        </ul>
-    `;
-
-    document.getElementById("warningModal").classList.remove("hidden");
-}
-
-function closeWarning() {
-    document.getElementById("warningModal").classList.add("hidden");
 }
 
 function saveHistory(url, result) {
@@ -511,7 +448,16 @@ function isDomainInList(host, list) {
 }
 
 function isIpAddress(host) {
-    return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+    const parts = host.split(".");
+
+    if (parts.length !== 4) {
+        return false;
+    }
+
+    return parts.every(function (part) {
+        const number = Number(part);
+        return part !== "" && number >= 0 && number <= 255;
+    });
 }
 
 function getDomainParts(host) {
