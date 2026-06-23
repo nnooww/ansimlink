@@ -12,17 +12,26 @@
       <h1>🔒 안심링크</h1>
 
       <p class="main-text">
-        현재 화면에 표시된 링크를 확인하기 위해 접근 권한이 필요합니다.
+        시각장애인과 저시력 사용자가 링크를 누르기 전에
+        위험 여부를 확인할 수 있도록 돕는 안전 링크 확인 서비스입니다.
       </p>
 
       <div class="info-box">
-        <p><strong>수집 내용</strong><br>화면 속 URL 정보</p>
-        <p><strong>사용 목적</strong><br>위험 링크 분석 및 음성 경고</p>
-        <p><strong>저장 내용</strong><br>탐지된 URL과 안전/위험 결과만 저장합니다.</p>
+        <p><strong>사용 방식</strong><br>
+          문자, 게시글, 이메일, 링크를 붙여넣으면 URL을 자동으로 탐지합니다.
+        </p>
+
+        <p><strong>수집 내용</strong><br>
+          사용자가 입력한 텍스트 안의 URL 정보만 검사합니다.
+        </p>
+
+        <p><strong>저장 내용</strong><br>
+          검사한 URL, 안전/위험 결과, 판단 이유만 저장합니다.
+        </p>
       </div>
 
       <button type="button" onclick="allowPermission()">
-        권한 허용하기
+        권한 허용하고 시작하기
       </button>
 
       <button type="button" class="sub-button" onclick="denyPermission()">
@@ -39,77 +48,36 @@
       </header>
 
       <p class="main-text">
-        현재 화면에서 링크를 감지하고 있습니다.
+        검사할 문자, 게시글, 이메일 내용 또는 URL을 아래에 붙여넣으세요.
       </p>
 
-      <div class="status-box" id="statusBox">
+      <label for="inputText">검사할 내용</label>
+      <textarea
+        id="inputText"
+        rows="8"
+        placeholder="예: 보안 인증이 필요합니다. https://goudle.com/login 으로 접속하세요."
+      ></textarea>
+
+      <button type="button" onclick="pasteFromClipboard()">
+        클립보드에서 붙여넣기
+      </button>
+
+      <button type="button" onclick="insertSample()">
+        테스트 예시 넣기
+      </button>
+
+      <button type="button" onclick="detectAndAnalyzeLinks()">
+        링크 탐지 및 분석하기
+      </button>
+
+      <div id="statusBox" class="status-box" aria-live="polite">
         발견된 링크 수: 0개
       </div>
 
-      <section class="phone-screen" id="screenArea" aria-label="링크 탐지 대상 화면">
-        <h2>현재 화면 예시</h2>
-
-        <div class="message-card">
-          <p>
-            보안 인증이 필요합니다. 아래 링크에서 계정을 확인하세요.
-          </p>
-          <a href="https://goudle.com/login/verify?account=123456789012">
-            Google 보안 인증 바로가기
-          </a>
-        </div>
-
-        <div class="message-card">
-          <p>
-            정부24 공식 사이트입니다.
-          </p>
-          <a href="https://www.gov.kr">
-            정부24 공식 홈페이지
-          </a>
-        </div>
-
-        <div class="message-card">
-          <p>
-            무료 이벤트 당첨 안내:
-            https://asdad.com/event/free-gift
-          </p>
-        </div>
-
-        <div class="message-card">
-          <p>
-            사진 확인 링크입니다.
-          </p>
-          <a href="https://grabify.link/test">
-            사진 보기
-          </a>
-        </div>
-      </section>
-
-      <button type="button" onclick="detectLinks()">
-        화면 링크 탐지하기
-      </button>
-
-      <section id="detectedList" class="detected-list" aria-live="polite"></section>
-
-      <button type="button" onclick="analyzeAllLinks()">
-        링크 분석하기
-      </button>
+      <section id="resultArea" class="result-area" aria-live="assertive"></section>
 
       <button type="button" class="sub-button" onclick="speakLastMessage()">
         🔊 음성 안내 다시 듣기
-      </button>
-    </section>
-
-    <section id="resultScreen" class="screen">
-      <h1>검사 결과</h1>
-
-      <div id="resultArea" aria-live="assertive"></div>
-
-      <button type="button" onclick="goMain()">
-        화면으로 돌아가기
-      </button>
-
-      <button type="button" class="sub-button" onclick="speakLastMessage()">
-        🔊 결과 다시 듣기
       </button>
     </section>
 
@@ -127,20 +95,6 @@
       </button>
     </section>
   </main>
-
-  <div id="warningModal" class="modal hidden" role="alertdialog" aria-modal="true">
-    <div class="modal-content">
-      <h2>🚨 위험한 링크입니다</h2>
-      <p id="warningUrl"></p>
-      <div id="warningReason"></div>
-      <p class="guide-text">
-        이 링크를 누르지 말고, 공식 사이트나 공식 앱으로 직접 접속하세요.
-      </p>
-      <button type="button" onclick="closeWarning()">
-        확인
-      </button>
-    </div>
-  </div>
 
   <script src="script.js"></script>
 </body>
